@@ -1,9 +1,6 @@
 #include "msp430fr2355.h"
 #include <msp430.h>
 
-void changeRGBLED (char Red, char Green, char Blue);
-void RGB_Init();
-
 void RGB_Init(){
     P6DIR |= BIT0 | BIT1 | BIT2;                     // P6.0 and P6.1 and P6.2 output
     P6SEL0 |= BIT0 | BIT1 |BIT2;                    // P6.0 and P6.1 and P6.2 options select
