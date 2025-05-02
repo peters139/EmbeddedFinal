@@ -1,57 +1,15 @@
-// sensors.h
-#ifndef SENSORS_H
-#define SENSORS_H
+#define THERMOCOUPLE_CHANNEL ADCINCH_3  /**< A3: flame thermocouple */
+#define THERMISTOR_CHANNEL   ADCINCH_4  /**< A4: boiler temperature */
+#define POT_CHANNEL          ADCINCH_5  /**< A5: setpoint potentiometer */
 
-#include <msp430fr2355.h>
-#include <stdint.h>
+#define ADC_TIMEOUT          100000U    /**< loop count before giving up */
 
-/** ADC channel mappings for MSP430FR2355 */
-#define THERMOCOUPLE_CHANNEL ADCINCH_3  /**< A3: Flame detection thermocouple */
-#define THERMISTOR_CHANNEL   ADCINCH_4  /**< A4: Boiler temperature thermistor */
-#define POT_CHANNEL          ADCINCH_5  /**< A5: Setpoint potentiometer     */
-
-/** Timeout for ADC conversions */
-#define ADC_TIMEOUT          100000U
-
-/**
- * @brief Initialize ADC peripheral and unlock GPIO pins (FRAM). Must be
- *        called before any sensor or ADC read functions.
- */
-void initADC(void);
-
-/**
- * @brief Read a raw 12-bit ADC value from the specified channel.
- *        Clears previous channel selection, starts a conversion, and waits
- *        (with timeout) for completion.
- *
- * @param channel  ADCINCH_x macro specifying the input channel
- * @return         12-bit ADC result (0–4095), or 0xFFFF on timeout
- */
+void     initADC(void);
 uint16_t readADC(uint16_t channel);
 
-/**
- * @brief Read boiler temperature from the thermistor on A4.
- * @return Raw ADC counts (0–4095) or calibrated units if implemented
- */
 uint16_t readThermistor(void);
-
-/**
- * @brief Read flame-detection thermocouple on A3 (cold-junction comp optional).
- * @return Raw ADC counts (0–4095) or temperature units
- */
 uint16_t readThermocouple(void);
-
-/**
- * @brief Read setpoint value from the potentiometer on A5.
- * @return Raw ADC counts (0–4095)
- */
 uint16_t readPot(void);
-
-#endif // SENSORS_H
-
-
-// sensors.c
-#include "sensors.h"
 
 static volatile uint16_t ADCResult   = 0;
 static volatile uint8_t  ADCFinished = 0;
@@ -59,34 +17,38 @@ static volatile uint8_t  ADCFinished = 0;
 #pragma vector=ADC_VECTOR
 __interrupt void ADC_ISR(void) {
     if (ADCIV == ADCIV_ADCIFG) {
-        ADCResult   = ADCMEM0;
-        ADCFinished = 1;
+        ADCResult   = ADCMEM0;   // grab the 12‑bit result
+        ADCFinished = 1;         // signal completion
     }
 }
 
 void initADC(void) {
-    PM5CTL0 &= ~LOCKLPM5;            // Unlock GPIO on FRAM devices
-    // Configure A3, A4, A5 pins
+    PM5CTL0 &= ~LOCKLPM5;            // Unlock GPIO on FRAM MSP430FR2355
+
+    // Configure analog function on P1.3, P1.4, P1.5
     P1SEL0 |= BIT3 | BIT4 | BIT5;
     P1SEL1 |= BIT3 | BIT4 | BIT5;
 
-    // ADC configuration
-    ADCCTL0 = ADCSHT_2 | ADCON;      // Sample-and-hold, ADC on
-    ADCCTL1 = ADCSHP;                // Use sampling timer
+    // ADC core settings
+    ADCCTL0 = ADCSHT_2 | ADCON;      // sample-and-hold time, turn ADC on
+    ADCCTL1 = ADCSHP;                // use the internal sampling timer
     ADCCTL2 = ADCRES_2;              // 12-bit resolution
-    ADCIE |= ADCIE0;                 // Enable interrupt
-    // Preselect default channel
+    ADCIE  |= ADCIE0;                // enable ADC interrupt
+
+    // Pick a default channel so ADC is enabled
     ADCMCTL0 = THERMOCOUPLE_CHANNEL;
-    ADCCTL0 |= ADCENC;
+    ADCCTL0 |= ADCENC;               // enable conversions
 }
 
 static uint16_t readADC_raw(uint16_t channel) {
-    ADCCTL0 &= ~ADCENC;              // Disable conversions to change channel
-    ADCMCTL0 = channel;              // Select channel
-    ADCFinished = 0;
-    ADCCTL0 |= ADCENC | ADCSC;       // Start conversion
+    ADCCTL0 &= ~ADCENC;               // disable conversions to switch channel
+    ADCMCTL0  = channel;             // choose new input
+    ADCFinished = 0;                 // clear the done flag
+    ADCCTL0  |= ADCENC | ADCSC;      // enable & start conversion
+
     uint32_t timeout = ADC_TIMEOUT;
-    while (!ADCFinished && --timeout);
+    while (!ADCFinished && --timeout);  // spin until done or timeout
+
     return timeout ? ADCResult : 0xFFFF;
 }
 
@@ -97,11 +59,8 @@ uint16_t readADC(uint16_t channel) {
 uint16_t readThermistor(void) {
     return readADC_raw(THERMISTOR_CHANNEL);
 }
+// …and similarly for thermocouple and pot
 
-uint16_t readThermocouple(void) {
-    return readADC_raw(THERMOCOUPLE_CHANNEL);
-}
-
-uint16_t readPot(void) {
-    return readADC_raw(POT_CHANNEL);
-}
+uint16_t flame = readThermocouple();
+uint16_t temp  = readThermistor();
+uint16_t setpt = readPot();
