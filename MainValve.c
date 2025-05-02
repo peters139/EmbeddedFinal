@@ -1,43 +1,31 @@
-#include <msp430.h>
 #include "MainValve.h"
 
-// — adjust these to match your board’s wiring —
-#define MAINVALVE_PIN_DIR   P2DIR
-#define MAINVALVE_PIN_SEL   P2SEL
-#define MAINVALVE_PIN       BIT1   // e.g. P2.1 → TA0.1
+#define PWM_PERIOD 20000            // 20ms period for 50Hz (in Timer ticks)
+#define MIN_PULSE 1000              // 1ms pulse width
+#define MAX_PULSE 2000              // 2ms pulse width
 
-// Timer parameters for 50 Hz PWM (20 ms period @ SMCLK=1 MHz)
-#define TIMER_PERIOD        20000U
-#define SERVO_MIN_PULSE     1000U   // 1 ms pulse → fully closed
-#define SERVO_MAX_PULSE     2000U   // 2 ms pulse → fully open
+/**
+ * @brief Initialize Timer_A0 CCR1 output on P5.0 for PWM
+ */
+void MainValve_Init(void) {
+    // Configure P5.0 as Timer_A0.1 output
+    P5DIR |= BIT0;                  // Set P5.0 as output
+    P5SEL0 |= BIT0;                 // Select primary module function
+    P5SEL1 &= ~BIT0;
 
-void MainValve_Init(void)
-{
-    // 1) Stop watchdog
-    WDTCTL = WDTPW | WDTHOLD;
-
-    // 2) Configure P2.1 as TA0CCR1 output
-    MAINVALVE_PIN_DIR |= MAINVALVE_PIN;  
-    MAINVALVE_PIN_SEL |= MAINVALVE_PIN;  
-
-    // 3) Timer_A0 setup: SMCLK @ 1 MHz, Up mode
-    TA0CCR0 = TIMER_PERIOD - 1;      // Period = 20 000 ticks
-    TA0CCTL1 = OUTMOD_7;             // Reset/Set output mode
-    TA0CCR1 = SERVO_MIN_PULSE;       // Start “closed”
-
-    TA0CTL = TASSEL_2 | MC_1 | TACLR; // SMCLK, Up mode, clear TAR
+    // Timer_B0 configuration
+    TA0CCR0 = PWM_PERIOD - 1;       // Set period for 50Hz
+    TA0CCTL1 = OUTMOD_7;            // Reset/Set output mode
+    TA0CCR1 = MIN_PULSE;            // Default to minimum (valve closed)
+    TA0CTL = TASSEL__SMCLK | MC__UP | TACLR; // SMCLK, up mode, clear TAR
 }
 
-void MainValve_Set(uint8_t position)
-{
-    // Scale 0–255 → 1000–2000 ticks
-    uint32_t span = (uint32_t)(SERVO_MAX_PULSE - SERVO_MIN_PULSE);
-    uint32_t pulse = SERVO_MIN_PULSE + ((uint32_t)position * span) / 255U;
-
-    // Clamp just in case
-    if (pulse >= TIMER_PERIOD) {
-        pulse = TIMER_PERIOD - 1;
-    }
-
-    TA0CCR1 = (uint16_t)pulse;
+/**
+ * @brief Set the main valve position via PWM duty cycle
+ * @param position 0-255
+ */
+void MainValve_Set(uint8_t position) {
+    // Map 0-255 to pulse width range MIN_PULSE to MAX_PULSE
+    uint32_t pulse = MIN_PULSE + ((uint32_t)position * (MAX_PULSE - MIN_PULSE)) / 255;
+    TA0CCR1 = pulse;
 }
